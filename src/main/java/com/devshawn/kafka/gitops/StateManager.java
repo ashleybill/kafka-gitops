@@ -7,17 +7,9 @@ import com.devshawn.kafka.gitops.config.ManagerConfig;
 import com.devshawn.kafka.gitops.domain.confluent.ServiceAccount;
 import com.devshawn.kafka.gitops.domain.options.GetAclOptions;
 import com.devshawn.kafka.gitops.domain.plan.DesiredPlan;
-import com.devshawn.kafka.gitops.domain.state.AclDetails;
-import com.devshawn.kafka.gitops.domain.state.CustomAclDetails;
-import com.devshawn.kafka.gitops.domain.state.DesiredState;
-import com.devshawn.kafka.gitops.domain.state.DesiredStateFile;
-import com.devshawn.kafka.gitops.domain.state.TopicDetails;
+import com.devshawn.kafka.gitops.domain.state.*;
 import com.devshawn.kafka.gitops.domain.state.service.KafkaStreamsService;
-import com.devshawn.kafka.gitops.exception.ConfluentCloudException;
-import com.devshawn.kafka.gitops.exception.InvalidAclDefinitionException;
-import com.devshawn.kafka.gitops.exception.MissingConfigurationException;
-import com.devshawn.kafka.gitops.exception.ServiceAccountNotFoundException;
-import com.devshawn.kafka.gitops.exception.ValidationException;
+import com.devshawn.kafka.gitops.exception.*;
 import com.devshawn.kafka.gitops.manager.ApplyManager;
 import com.devshawn.kafka.gitops.manager.PlanManager;
 import com.devshawn.kafka.gitops.service.ConfluentCloudService;
@@ -32,11 +24,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.NoSuchElementException;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -77,14 +65,15 @@ public class StateManager {
     }
 
     public DesiredPlan plan() {
-        DesiredPlan desiredPlan = generatePlan();
+        boolean ignoreMissingServiceAccounts = !managerConfig.getPlanFile().isPresent();
+        DesiredPlan desiredPlan = generatePlan(ignoreMissingServiceAccounts);
         planManager.writePlanToFile(desiredPlan);
         planManager.validatePlanHasChanges(desiredPlan, managerConfig.isDeleteDisabled());
         return desiredPlan;
     }
 
-    private DesiredPlan generatePlan() {
-        DesiredState desiredState = getDesiredState();
+    private DesiredPlan generatePlan(boolean ignoreMissingServiceAccounts) {
+        DesiredState desiredState = getDesiredState(ignoreMissingServiceAccounts);
         DesiredPlan.Builder desiredPlan = new DesiredPlan.Builder();
         planManager.planAcls(desiredState, desiredPlan);
         planManager.planTopics(desiredState, desiredPlan);
@@ -94,7 +83,7 @@ public class StateManager {
     public DesiredPlan apply() {
         DesiredPlan desiredPlan = planManager.readPlanFromFile();
         if (desiredPlan == null) {
-            desiredPlan = generatePlan();
+            desiredPlan = generatePlan(false);
         }
 
         planManager.validatePlanHasChanges(desiredPlan, managerConfig.isDeleteDisabled());
@@ -105,37 +94,47 @@ public class StateManager {
         return desiredPlan;
     }
 
-    public void createServiceAccounts() {
+    public void createServiceAccounts(boolean check) {
         DesiredStateFile desiredStateFile = parserService.parseStateFile();
-        List<ServiceAccount> serviceAccounts = confluentCloudService.getServiceAccounts();
         AtomicInteger count = new AtomicInteger();
         if (isConfluentCloudEnabled(desiredStateFile)) {
+            confluentCloudService.loginCCloud();
+            List<ServiceAccount> serviceAccounts = confluentCloudService.getServiceAccounts();
             desiredStateFile.getServices().forEach((name, service) -> {
-                createServiceAccount(name, serviceAccounts, count, false);
+                final String serviceAccountName = service.getServiceAccount().orElse(name);
+                createServiceAccount(serviceAccountName, serviceAccounts, count, false, check);
             });
 
             desiredStateFile.getUsers().forEach((name, user) -> {
-                createServiceAccount(name, serviceAccounts, count, true);
+                createServiceAccount(name, serviceAccounts, count, true, check);
             });
         } else {
             throw new ConfluentCloudException("Confluent Cloud must be enabled in the state file to use this command.");
         }
 
         if (count.get() == 0) {
-            LogUtil.printSimpleSuccess("No service accounts were created as there are no new service accounts.");
+            if (check) {
+                LogUtil.printSimpleSuccess("No service accounts would be created as there are no new service accounts.");
+            } else {
+                LogUtil.printSimpleSuccess("No service accounts were created as there are no new service accounts.");
+            }
         }
     }
 
-    private void createServiceAccount(String name, List<ServiceAccount> serviceAccounts, AtomicInteger count, boolean isUser) {
+    private void createServiceAccount(String name, List<ServiceAccount> serviceAccounts, AtomicInteger count, boolean isUser, boolean check) {
         String fullName = isUser ? String.format("user-%s", name) : name;
         if (serviceAccounts.stream().noneMatch(it -> it.getName().equals(fullName))) {
-            confluentCloudService.createServiceAccount(name, isUser);
-            LogUtil.printSimpleSuccess(String.format("Successfully created service account: %s", fullName));
+            if (!check) {
+                confluentCloudService.createServiceAccount(name, isUser);
+                LogUtil.printSimpleSuccess(String.format("Successfully created service account: %s", fullName));
+            } else {
+                LogUtil.printSimpleSuccess(String.format("Service account: %s would be created.", fullName));
+            }
             count.getAndIncrement();
         }
     }
 
-    private DesiredState getDesiredState() {
+    private DesiredState getDesiredState(boolean ignoreMissingServiceAccounts) {
         DesiredStateFile desiredStateFile = getAndValidateStateFile();
         DesiredState.Builder desiredState = new DesiredState.Builder()
                 .addAllPrefixedTopicsToIgnore(getPrefixedTopicsToIgnore(desiredStateFile));
@@ -143,8 +142,8 @@ public class StateManager {
         generateTopicsState(desiredState, desiredStateFile);
 
         if (isConfluentCloudEnabled(desiredStateFile)) {
-            generateConfluentCloudServiceAcls(desiredState, desiredStateFile);
-            generateConfluentCloudUserAcls(desiredState, desiredStateFile);
+            generateConfluentCloudServiceAcls(desiredState, desiredStateFile, ignoreMissingServiceAccounts);
+            generateConfluentCloudUserAcls(desiredState, desiredStateFile, ignoreMissingServiceAccounts);
         } else {
             generateServiceAcls(desiredState, desiredStateFile);
             generateUserAcls(desiredState, desiredStateFile);
@@ -165,21 +164,29 @@ public class StateManager {
         }
     }
 
-    private void generateConfluentCloudServiceAcls(DesiredState.Builder desiredState, DesiredStateFile desiredStateFile) {
+    private void generateConfluentCloudServiceAcls(DesiredState.Builder desiredState, DesiredStateFile desiredStateFile, boolean ignoreMissingServiceAccounts) {
+        confluentCloudService.loginCCloud();
         List<ServiceAccount> serviceAccounts = confluentCloudService.getServiceAccounts();
         desiredStateFile.getServices().forEach((name, service) -> {
+            final String serviceAccountName = service.getServiceAccount().orElse(name);
             AtomicReference<Integer> index = new AtomicReference<>(0);
 
-            Optional<ServiceAccount> serviceAccount = serviceAccounts.stream().filter(it -> it.getName().equals(name)).findFirst();
-            String serviceAccountId = serviceAccount.orElseThrow(() -> new ServiceAccountNotFoundException(name)).getId();
+            Optional<ServiceAccount> serviceAccount = serviceAccounts.stream().filter(it -> it.getName().equals(serviceAccountName)).findFirst();
 
-            service.getAcls(buildGetAclOptions(name)).forEach(aclDetails -> {
+            String serviceAccountId;
+            if (ignoreMissingServiceAccounts && !serviceAccount.isPresent()) {
+                serviceAccountId = serviceAccountName;
+            } else {
+                serviceAccountId = serviceAccount.orElseThrow(() -> new ServiceAccountNotFoundException(serviceAccountName)).getId();
+            }
+
+            service.getAcls(buildGetAclOptions(name, serviceAccountName)).forEach(aclDetails -> {
                 aclDetails.setPrincipal(String.format("User:%s", serviceAccountId));
                 desiredState.putAcls(String.format("%s-%s", name, index.getAndSet(index.get() + 1)), aclDetails.build());
             });
 
-            if (desiredStateFile.getCustomServiceAcls().containsKey(name)) {
-                Map<String, CustomAclDetails> customAcls = desiredStateFile.getCustomServiceAcls().get(name);
+            if (desiredStateFile.getCustomServiceAcls().containsKey(serviceAccountName)) {
+                Map<String, CustomAclDetails> customAcls = desiredStateFile.getCustomServiceAcls().get(serviceAccountName);
                 customAcls.forEach((aclName, customAcl) -> {
                     AclDetails.Builder aclDetails = AclDetails.fromCustomAclDetails(customAcl);
                     aclDetails.setPrincipal(String.format("User:%s", serviceAccountId));
@@ -189,14 +196,21 @@ public class StateManager {
         });
     }
 
-    private void generateConfluentCloudUserAcls(DesiredState.Builder desiredState, DesiredStateFile desiredStateFile) {
+    private void generateConfluentCloudUserAcls(DesiredState.Builder desiredState, DesiredStateFile desiredStateFile, boolean ignoreMissingServiceAccounts) {
+        confluentCloudService.loginCCloud();
         List<ServiceAccount> serviceAccounts = confluentCloudService.getServiceAccounts();
         desiredStateFile.getUsers().forEach((name, user) -> {
             AtomicReference<Integer> index = new AtomicReference<>(0);
             String serviceAccountName = String.format("user-%s", name);
 
             Optional<ServiceAccount> serviceAccount = serviceAccounts.stream().filter(it -> it.getName().equals(serviceAccountName)).findFirst();
-            String serviceAccountId = serviceAccount.orElseThrow(() -> new ServiceAccountNotFoundException(serviceAccountName)).getId();
+
+            String serviceAccountId;
+            if (ignoreMissingServiceAccounts && !serviceAccount.isPresent()) {
+                serviceAccountId = serviceAccountName;
+            } else {
+                serviceAccountId = serviceAccount.orElseThrow(() -> new ServiceAccountNotFoundException(serviceAccountName)).getId();
+            }
 
             user.getRoles().forEach(role -> {
                 List<AclDetails.Builder> acls = roleService.getAcls(role, String.format("User:%s", serviceAccountId));
@@ -216,13 +230,14 @@ public class StateManager {
 
     private void generateServiceAcls(DesiredState.Builder desiredState, DesiredStateFile desiredStateFile) {
         desiredStateFile.getServices().forEach((name, service) -> {
+            final String serviceAccountName = service.getServiceAccount().orElse(name);
             AtomicReference<Integer> index = new AtomicReference<>(0);
-            service.getAcls(buildGetAclOptions(name)).forEach(aclDetails -> {
-                desiredState.putAcls(String.format("%s-%s", name, index.getAndSet(index.get() + 1)), buildAclDetails(name, aclDetails));
+            service.getAcls(buildGetAclOptions(name, serviceAccountName)).forEach(aclDetails -> {
+                desiredState.putAcls(String.format("%s-%s", name, index.getAndSet(index.get() + 1)), buildAclDetails(serviceAccountName, aclDetails));
             });
 
             if (desiredStateFile.getCustomServiceAcls().containsKey(name)) {
-                Map<String, CustomAclDetails> customAcls = desiredStateFile.getCustomServiceAcls().get(name);
+                Map<String, CustomAclDetails> customAcls = desiredStateFile.getCustomServiceAcls().get(serviceAccountName);
                 customAcls.forEach((aclName, customAcl) -> {
                     AclDetails.Builder aclDetails = AclDetails.fromCustomAclDetails(customAcl);
                     aclDetails.setPrincipal(customAcl.getPrincipal().orElseThrow(() ->
@@ -271,15 +286,19 @@ public class StateManager {
             // Do nothing, no blacklist exists
         }
         desiredStateFile.getServices().forEach((name, service) -> {
+            final String serviceAccountName = service.getServiceAccount().orElse(name);
             if (service instanceof KafkaStreamsService) {
-                topics.add(name);
+                topics.add(serviceAccountName);
             }
         });
         return topics;
     }
 
-    private GetAclOptions buildGetAclOptions(String serviceName) {
-        return new GetAclOptions.Builder().setServiceName(serviceName).setDescribeAclEnabled(describeAclEnabled).build();
+    private GetAclOptions buildGetAclOptions(String serviceName, String serviceAccountName) {
+        return new GetAclOptions.Builder()
+                .setServiceName(serviceName)
+                .setServiceAccountName(serviceAccountName)
+                .setDescribeAclEnabled(describeAclEnabled).build();
     }
 
     private void validateCustomAcls(DesiredStateFile desiredStateFile) {

@@ -67,4 +67,9 @@ public class RoleService extends ServiceDetails {
                 .setPattern("LITERAL")
                 .setName("kafka-cluster");
     }
+
+    @Override
+    public Optional<String> getServiceAccount() {
+        return Optional.empty();
+    }
 }

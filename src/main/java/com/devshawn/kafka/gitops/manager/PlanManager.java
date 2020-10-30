@@ -1,11 +1,7 @@
 package com.devshawn.kafka.gitops.manager;
 
 import com.devshawn.kafka.gitops.config.ManagerConfig;
-import com.devshawn.kafka.gitops.domain.plan.AclPlan;
-import com.devshawn.kafka.gitops.domain.plan.DesiredPlan;
-import com.devshawn.kafka.gitops.domain.plan.PlanOverview;
-import com.devshawn.kafka.gitops.domain.plan.TopicConfigPlan;
-import com.devshawn.kafka.gitops.domain.plan.TopicPlan;
+import com.devshawn.kafka.gitops.domain.plan.*;
 import com.devshawn.kafka.gitops.domain.state.AclDetails;
 import com.devshawn.kafka.gitops.domain.state.DesiredState;
 import com.devshawn.kafka.gitops.domain.state.TopicDetails;

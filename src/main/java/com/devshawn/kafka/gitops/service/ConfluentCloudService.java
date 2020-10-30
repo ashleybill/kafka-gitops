@@ -19,6 +19,14 @@ public class ConfluentCloudService {
         this.objectMapper = objectMapper;
     }
 
+    public void loginCCloud() {
+        try {
+            execCmd(new String[]{"ccloud", "login"});
+        } catch (IOException ex) {
+            throw new ConfluentCloudException("Error Logging in to Confluent Cloud. Are credentials defined in environment variables?");
+        }
+    }
+
     public List<ServiceAccount> getServiceAccounts() {
         log.info("Fetching service account list from Confluent Cloud via ccloud tool.");
         try {

@@ -1,6 +1,7 @@
 package com.devshawn.kafka.gitops.config;
 
 import com.devshawn.kafka.gitops.exception.MissingConfigurationException;
+import com.devshawn.kafka.gitops.util.LogUtil;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.common.config.SaslConfigs;
 import org.slf4j.LoggerFactory;
@@ -47,6 +48,7 @@ public class KafkaGitopsConfigLoader {
 
     private static void handleDefaultConfig(Map<String, Object> config) {
         if (!config.containsKey(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG)) {
+            LogUtil.printSimpleWarning(String.format("%s property missing, defaulting to localhost:9092", CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG));
             config.put(CommonClientConfigs.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
         }
 

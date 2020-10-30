@@ -1,10 +1,6 @@
 package com.devshawn.kafka.gitops.util;
 
-import com.devshawn.kafka.gitops.domain.plan.AclPlan;
-import com.devshawn.kafka.gitops.domain.plan.DesiredPlan;
-import com.devshawn.kafka.gitops.domain.plan.PlanOverview;
-import com.devshawn.kafka.gitops.domain.plan.TopicConfigPlan;
-import com.devshawn.kafka.gitops.domain.plan.TopicPlan;
+import com.devshawn.kafka.gitops.domain.plan.*;
 import com.devshawn.kafka.gitops.domain.state.AclDetails;
 import com.devshawn.kafka.gitops.domain.state.TopicDetails;
 import com.devshawn.kafka.gitops.enums.PlanAction;
@@ -179,6 +175,10 @@ public class LogUtil {
 
     public static void printSimpleSuccess(String message) {
         System.out.println(String.format("[%s] %s\n", green("SUCCESS"), message));
+    }
+
+    public static void printSimpleWarning(String message) {
+        System.out.println(String.format("[%s] %s\n", yellow("WARNING"), message));
     }
 
     public static void printSimpleError(String message) {

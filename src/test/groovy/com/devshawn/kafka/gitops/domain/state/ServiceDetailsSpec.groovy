@@ -7,7 +7,12 @@ class ServiceDetailsSpec extends Specification {
 
     void 'test default getAcls'() {
         setup:
-        ServiceDetails serviceDetails = new ServiceDetails() {}
+        ServiceDetails serviceDetails = new ServiceDetails() {
+            @Override
+            Optional<String> getServiceAccount() {
+                return "service-name";
+            }
+        }
 
         when:
         serviceDetails.getAcls(new GetAclOptions.Builder().buildPartial())
