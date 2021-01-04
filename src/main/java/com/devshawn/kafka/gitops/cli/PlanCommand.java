@@ -22,6 +22,9 @@ public class PlanCommand implements Callable<Integer> {
     @CommandLine.Option(names = {"--include-unchanged"}, description = "Include unchanged resources in the plan file.")
     private boolean includeUnchanged = false;
 
+    @CommandLine.Option(names = {"--exclude-topics"}, description = "Exclude topic creation from the plan.")
+    private boolean excludeTopics = false;
+
     @CommandLine.ParentCommand
     private MainCommand parent;
 
@@ -31,7 +34,7 @@ public class PlanCommand implements Callable<Integer> {
             System.out.println("Generating execution plan...\n");
             ParserService parserService = new ParserService(parent.getFile());
             StateManager stateManager = new StateManager(generateStateManagerConfig(), parserService);
-            DesiredPlan desiredPlan = stateManager.plan();
+            DesiredPlan desiredPlan = stateManager.plan(excludeTopics);
             LogUtil.printPlan(desiredPlan, parent.isDeleteDisabled());
             return 0;
         } catch (PlanIsUpToDateException ex) {

@@ -16,7 +16,9 @@ public interface DesiredPlan {
 
     default DesiredPlan toChangesOnlyPlan() {
         DesiredPlan.Builder builder = new DesiredPlan.Builder();
-        getTopicPlans().stream().filter(it -> !it.getAction().equals(PlanAction.NO_CHANGE)).map(TopicPlan::toChangesOnlyPlan).forEach(builder::addTopicPlans);
+        if (getTopicPlans() != null) {
+            getTopicPlans().stream().filter(it -> !it.getAction().equals(PlanAction.NO_CHANGE)).map(TopicPlan::toChangesOnlyPlan).forEach(builder::addTopicPlans);
+        }
         getAclPlans().stream().filter(it -> !it.getAction().equals(PlanAction.NO_CHANGE)).forEach(builder::addAclPlans);
         return builder.build();
     }

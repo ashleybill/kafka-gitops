@@ -64,26 +64,28 @@ public class StateManager {
         return desiredStateFile;
     }
 
-    public DesiredPlan plan() {
+    public DesiredPlan plan(boolean excludeTopics) {
         boolean ignoreMissingServiceAccounts = !managerConfig.getPlanFile().isPresent();
-        DesiredPlan desiredPlan = generatePlan(ignoreMissingServiceAccounts);
+        DesiredPlan desiredPlan = generatePlan(ignoreMissingServiceAccounts, excludeTopics);
         planManager.writePlanToFile(desiredPlan);
         planManager.validatePlanHasChanges(desiredPlan, managerConfig.isDeleteDisabled());
         return desiredPlan;
     }
 
-    private DesiredPlan generatePlan(boolean ignoreMissingServiceAccounts) {
+    private DesiredPlan generatePlan(boolean ignoreMissingServiceAccounts, boolean excludeTopics) {
         DesiredState desiredState = getDesiredState(ignoreMissingServiceAccounts);
         DesiredPlan.Builder desiredPlan = new DesiredPlan.Builder();
         planManager.planAcls(desiredState, desiredPlan);
-        planManager.planTopics(desiredState, desiredPlan);
+        if (!excludeTopics) {
+            planManager.planTopics(desiredState, desiredPlan);
+        }
         return desiredPlan.build();
     }
 
     public DesiredPlan apply() {
         DesiredPlan desiredPlan = planManager.readPlanFromFile();
         if (desiredPlan == null) {
-            desiredPlan = generatePlan(false);
+            desiredPlan = generatePlan(false, false);
         }
 
         planManager.validatePlanHasChanges(desiredPlan, managerConfig.isDeleteDisabled());

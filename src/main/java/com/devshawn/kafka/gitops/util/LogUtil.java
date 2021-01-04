@@ -15,8 +15,10 @@ public class LogUtil {
 
         printLegend(planOverview);
 
-        printTopicOverview(desiredPlan, deleteDisabled);
-        desiredPlan.getTopicPlans().forEach(LogUtil::printTopicPlan);
+        if (desiredPlan.getTopicPlans() != null) {
+            printTopicOverview(desiredPlan, deleteDisabled);
+            desiredPlan.getTopicPlans().forEach(LogUtil::printTopicPlan);
+        }
 
         printAclOverview(desiredPlan, deleteDisabled);
         desiredPlan.getAclPlans().forEach(LogUtil::printAclPlan);
